@@ -89,6 +89,16 @@ pub(super) fn extract_input_shell_command(input: &str) -> Option<&str> {
 fn build_input_shell_command(command: &str) -> std::process::Command {
     #[cfg(windows)]
     {
+        // Explicitly configured `[tools] shell_command` wins, otherwise a
+        // detected MSYS2 bash is used (defaulting to the MSYS2 path system
+        // when present), otherwise cmd.exe.
+        if let Some(shell) = crate::msys2::resolve_shell_command(
+            crate::config::config().tools.shell_command.as_deref(),
+        ) {
+            let mut cmd = std::process::Command::new(shell);
+            cmd.arg("-lc").arg(command);
+            return cmd;
+        }
         let mut cmd = std::process::Command::new("cmd.exe");
         cmd.arg("/C").arg(command);
         cmd

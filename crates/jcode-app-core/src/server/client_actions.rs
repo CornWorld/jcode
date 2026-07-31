@@ -36,7 +36,12 @@ fn derive_subagent_description(prompt: &str) -> String {
 fn build_input_shell_command(command: &str) -> Command {
     #[cfg(windows)]
     {
-        if let Some(shell) = crate::config::config().tools.shell_command.as_deref() {
+        // Explicitly configured `[tools] shell_command` wins, otherwise a
+        // detected MSYS2 bash is used (defaulting to the MSYS2 path system
+        // when present), otherwise cmd.exe.
+        if let Some(shell) = crate::msys2::resolve_shell_command(
+            crate::config::config().tools.shell_command.as_deref(),
+        ) {
             let mut cmd = Command::new(shell);
             cmd.arg("-lc").arg(command);
             return cmd;

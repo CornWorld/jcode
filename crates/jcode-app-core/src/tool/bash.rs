@@ -496,33 +496,61 @@ impl Drop for ProcessGroupKillGuard {
     }
 }
 
+/// When commands run through an MSYS2 shell (explicitly configured or
+/// auto-detected), export a marker and the session working directory in its
+/// MSYS2 form so scripts can reliably reference the project root via
+/// `$JCODE_MSYS_CWD`. The conversion goes through `cygpath` to resolve MSYS2
+/// mount points correctly (e.g. `C:\msys64\home\cornw\jcode` ->
+/// `/home/cornw/jcode`).
+#[cfg(windows)]
+fn configure_msys2_cwd(command: &mut TokioCommand, working_dir: &std::path::Path) {
+    if crate::msys2::resolve_shell_command(crate::config::config().tools.shell_command.as_deref())
+        .is_some()
+    {
+        command.env("JCODE_MSYS2", "1");
+        if let Some(msys) = crate::msys2::to_msys_path(working_dir) {
+            command.env("JCODE_MSYS_CWD", msys);
+        }
+    }
+}
+
+/// Build the native `cmd.exe` fallback shell. cmd.exe does not use the standard
+/// C runtime argument-decoding rules, so passing the command through `arg`
+/// would make Rust escape nested quotes for CommandLineToArgvW, which can
+/// corrupt commands such as:
+///
+///     gh issue create --title "text with spaces"
+///
+/// Tokio's `raw_arg` is specifically provided for `cmd.exe /C`. Wrap the full
+/// command in the outer quotes expected by cmd so its inner quotes reach child
+/// programs intact. `/D` disables AutoRun hooks and `/S` selects the documented
+/// quote handling used with this form.
+#[cfg(windows)]
+fn build_cmd_shell_command(cmd_str: &str) -> TokioCommand {
+    let mut cmd = TokioCommand::new("cmd.exe");
+    cmd.args(["/D", "/S", "/C"])
+        .raw_arg(format!("\"{cmd_str}\""));
+    cmd
+}
+
 fn build_shell_command(cmd_str: &str) -> TokioCommand {
     #[cfg(windows)]
     {
-        // Optional override: run commands through a user-configured shell
-        // (e.g. MSYS2 bash) instead of cmd.exe. Invoked as `-lc <command>`
-        // so a login shell profile sets up PATH and the environment, and the
-        // whole command string arrives as a single argv (MSYS2's automatic
-        // path conversion applies inside bash when it spawns child tools).
-        if let Some(shell) = crate::config::config().tools.shell_command.as_deref() {
+        // Resolve the effective shell: an explicitly configured
+        // `[tools] shell_command` wins; otherwise a detected MSYS2 bash is used
+        // (so jcode defaults to the MSYS2 path system when MSYS2 is present);
+        // otherwise fall back to cmd.exe. Invoked as `-lc <command>` so a
+        // login-shell profile sets up PATH and the environment, and the whole
+        // command string arrives as a single argv (MSYS2's automatic path
+        // conversion applies inside bash when it spawns child tools).
+        if let Some(shell) = crate::msys2::resolve_shell_command(
+            crate::config::config().tools.shell_command.as_deref(),
+        ) {
             let mut cmd = TokioCommand::new(shell);
             cmd.arg("-lc").arg(cmd_str);
             return cmd;
         }
-        let mut cmd = TokioCommand::new("cmd.exe");
-        // cmd.exe does not use the standard C runtime argument-decoding rules.
-        // Passing the command through `arg` makes Rust escape nested quotes for
-        // CommandLineToArgvW, which can corrupt commands such as:
-        //
-        //     gh issue create --title "text with spaces"
-        //
-        // Tokio's `raw_arg` is specifically provided for `cmd.exe /C`. Wrap the
-        // full command in the outer quotes expected by cmd so its inner quotes
-        // reach child programs intact. `/D` disables AutoRun hooks and `/S`
-        // selects the documented quote handling used with this form.
-        cmd.args(["/D", "/S", "/C"])
-            .raw_arg(format!("\"{cmd_str}\""));
-        cmd
+        build_cmd_shell_command(cmd_str)
     }
     #[cfg(not(windows))]
     {
@@ -566,7 +594,9 @@ fn format_command_output(mut output: String, exit_code: Option<i32>) -> String {
 
 #[cfg(test)]
 mod utf8_truncation_tests {
-    #[cfg(any(windows, unix))]
+    #[cfg(windows)]
+    use super::build_cmd_shell_command;
+    #[cfg(unix)]
     use super::build_shell_command;
     use super::format_command_output;
 
@@ -580,8 +610,8 @@ mod utf8_truncation_tests {
 
     #[cfg(windows)]
     #[tokio::test]
-    async fn build_shell_command_uses_cmd_and_executes_command() {
-        let output = build_shell_command("echo hello-from-cmd")
+    async fn build_cmd_shell_command_uses_cmd_and_executes_command() {
+        let output = build_cmd_shell_command("echo hello-from-cmd")
             .output()
             .await
             .expect("run cmd command");
@@ -612,7 +642,7 @@ mod utf8_truncation_tests {
         .expect("write cmd quoting probe");
 
         let quoted_command = format!("call \"{}\" \"text with spaces\"", probe_path.display());
-        let quoted_output = build_shell_command(&quoted_command)
+        let quoted_output = build_cmd_shell_command(&quoted_command)
             .output()
             .await
             .expect("run cmd quoting probe");
@@ -767,6 +797,8 @@ impl BashTool {
 
         if let Some(ref dir) = ctx.working_dir {
             command.current_dir(dir);
+            #[cfg(windows)]
+            configure_msys2_cwd(&mut command, dir);
         }
         let mut child = command.spawn()?;
 
@@ -1137,6 +1169,8 @@ impl BashTool {
 						.stderr(Stdio::piped());
                     if let Some(ref dir) = working_dir {
                         cmd.current_dir(dir);
+                        #[cfg(windows)]
+                        configure_msys2_cwd(&mut cmd, dir);
                     }
                     let mut child = cmd
                         .spawn()
