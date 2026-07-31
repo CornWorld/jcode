@@ -129,7 +129,7 @@ pub fn resolve_shell_command(configured: Option<&str>) -> Option<String> {
     }
     #[cfg(not(windows))]
     {
-        let _ = configured;
+        drop(configured);
         None
     }
 }
@@ -144,23 +144,24 @@ pub fn to_msys_path(path: &Path) -> Option<String> {
     {
         let native = path.to_string_lossy();
         if let Some(cygpath) = find_cygpath() {
-            let output = Command::new(&cygpath)
+            match Command::new(&cygpath)
                 .arg("-u")
                 .arg(native.as_ref())
                 .output()
-                .ok()?;
-            if output.status.success() {
-                let converted = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !converted.is_empty() {
-                    return Some(converted);
+            {
+                Ok(output) if output.status.success() => {
+                    let converted = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !converted.is_empty() {
+                        return Some(converted);
+                    }
                 }
+                Ok(_) | Err(_) => {}
             }
         }
         windows_to_msys_fallback(&native)
     }
     #[cfg(not(windows))]
     {
-        let _ = path;
         Some(path.to_string_lossy().into_owned())
     }
 }
@@ -172,19 +173,20 @@ pub fn to_windows_path(msys: &str) -> Option<PathBuf> {
     #[cfg(windows)]
     {
         if let Some(cygpath) = find_cygpath() {
-            let output = Command::new(&cygpath).arg("-w").arg(msys).output().ok()?;
-            if output.status.success() {
-                let converted = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !converted.is_empty() {
-                    return Some(PathBuf::from(converted));
+            match Command::new(&cygpath).arg("-w").arg(msys).output() {
+                Ok(output) if output.status.success() => {
+                    let converted = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !converted.is_empty() {
+                        return Some(PathBuf::from(converted));
+                    }
                 }
+                Ok(_) | Err(_) => {}
             }
         }
         msys_to_windows_fallback(msys)
     }
     #[cfg(not(windows))]
     {
-        let _ = msys;
         Some(PathBuf::from(msys))
     }
 }
