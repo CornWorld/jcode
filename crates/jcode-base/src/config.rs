@@ -570,6 +570,14 @@ pub struct ToolConfig {
     pub disabled: Vec<String>,
     /// Disable all built-in tools unless `enabled` is provided.
     pub disable_base_tools: bool,
+    /// Windows-only. Shell executable used by the `bash` tool and the client
+    /// input panel when running commands. Defaults to `cmd.exe` (the current
+    /// Windows behavior). Set to e.g. `C:\msys64\usr\bin\bash.exe` to run
+    /// commands through MSYS2 bash instead, so Unix-style tooling works.
+    /// Invoked as `<shell_command> -lc <command>` (login shell so the MSYS2
+    /// profile sets up PATH and environment). Ignored on non-Windows.
+    #[serde(default)]
+    pub shell_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

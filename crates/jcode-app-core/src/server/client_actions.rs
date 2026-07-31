@@ -36,6 +36,11 @@ fn derive_subagent_description(prompt: &str) -> String {
 fn build_input_shell_command(command: &str) -> Command {
     #[cfg(windows)]
     {
+        if let Some(shell) = crate::config::config().tools.shell_command.as_deref() {
+            let mut cmd = Command::new(shell);
+            cmd.arg("-lc").arg(command);
+            return cmd;
+        }
         let mut cmd = Command::new("cmd.exe");
         cmd.arg("/C").arg(command);
         cmd

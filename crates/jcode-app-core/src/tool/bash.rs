@@ -499,6 +499,16 @@ impl Drop for ProcessGroupKillGuard {
 fn build_shell_command(cmd_str: &str) -> TokioCommand {
     #[cfg(windows)]
     {
+        // Optional override: run commands through a user-configured shell
+        // (e.g. MSYS2 bash) instead of cmd.exe. Invoked as `-lc <command>`
+        // so a login shell profile sets up PATH and the environment, and the
+        // whole command string arrives as a single argv (MSYS2's automatic
+        // path conversion applies inside bash when it spawns child tools).
+        if let Some(shell) = crate::config::config().tools.shell_command.as_deref() {
+            let mut cmd = TokioCommand::new(shell);
+            cmd.arg("-lc").arg(cmd_str);
+            return cmd;
+        }
         let mut cmd = TokioCommand::new("cmd.exe");
         // cmd.exe does not use the standard C runtime argument-decoding rules.
         // Passing the command through `arg` makes Rust escape nested quotes for
