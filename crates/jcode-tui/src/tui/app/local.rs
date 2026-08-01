@@ -154,11 +154,9 @@ pub(super) fn handle_terminal_event(
             // events are still accepted instead of being dropped, which
             // otherwise shows up as text the terminal already echoed but jcode
             // never received (input pointer falling back / overlapping).
-            needs_redraw |= apply_terminal_event(app, terminal, Some(Ok(event)))
-                .unwrap_or_else(|err| {
-                    crate::logging::warn(&format!(
-                        "tui: skipped a terminal event in burst: {err}"
-                    ));
+            needs_redraw |=
+                apply_terminal_event(app, terminal, Some(Ok(event))).unwrap_or_else(|err| {
+                    crate::logging::warn(&format!("tui: skipped a terminal event in burst: {err}"));
                     false
                 });
         }
