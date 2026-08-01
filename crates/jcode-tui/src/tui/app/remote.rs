@@ -415,9 +415,15 @@ async fn apply_terminal_event(
             ));
             app.note_client_interaction();
             app.update_copy_badge_key_event(key);
-            if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                handle_remote_key_event(app, key, remote).await?;
-                if let Some(selection) = app.pending_route_selection.take() {
+            match key.kind {
+                KeyEventKind::Press | KeyEventKind::Repeat => {
+                    // Remember the press so a matching Release is recognized as
+                    // a normal pair (see `handle_key_release_event`).
+                    if app.pending_press_keys.len() < 32 {
+                        app.pending_press_keys.push(key.code);
+                    }
+                    handle_remote_key_event(app, key, remote).await?;
+                    if let Some(selection) = app.pending_route_selection.take() {
                     app.pending_model_switch = None;
                     match remote.set_route_selection(selection).await {
                         Ok(_) => {
@@ -509,6 +515,13 @@ async fn apply_terminal_event(
                         | crate::tui::AccountPickerAction::Replace { .. }
                         | crate::tui::AccountPickerAction::OpenCenter { .. } => {}
                     }
+                }
+            }
+                KeyEventKind::Release => {
+                    // Windows IME reports some confirmed CJK as an orphan
+                    // Release (bKeyDown=FALSE, no Press). Recover the wide
+                    // character so it is not dropped during fast typing.
+                    app.handle_key_release_event(key.code);
                 }
             }
             needs_redraw = true;
@@ -788,8 +801,16 @@ fn handle_terminal_event_while_disconnected(
                 app.input.len(),
                 app.cursor_pos,
             ));
-            if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                handle_disconnected_key_event(app, key)?;
+            match key.kind {
+                KeyEventKind::Press | KeyEventKind::Repeat => {
+                    if app.pending_press_keys.len() < 32 {
+                        app.pending_press_keys.push(key.code);
+                    }
+                    handle_disconnected_key_event(app, key)?;
+                }
+                KeyEventKind::Release => {
+                    app.handle_key_release_event(key.code);
+                }
             }
             needs_redraw = true;
         }

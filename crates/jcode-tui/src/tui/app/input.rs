@@ -2791,11 +2791,49 @@ impl App {
             self.input.len(),
             self.cursor_pos,
         ));
+        // Remember the pressed key so a matching Release can be recognized as a
+        // normal Press→Release pair. A Release without a tracked press is an
+        // orphan, which Windows IME produces for confirmed CJK (bKeyDown=FALSE);
+        // see `handle_orphan_wide_release`. Bound the stack so a key held down
+        // with its Release never delivered cannot grow it without limit.
+        if self.pending_press_keys.len() < 32 {
+            self.pending_press_keys.push(event.code);
+        }
         self.handle_key_core(
             event.code,
             event.modifiers,
             text_input_for_key_event(&event),
         )
+    }
+
+    /// Handle a key *Release* event. Called by the local/remote dispatchers for
+    /// `KeyEventKind::Release`, which are otherwise ignored. A normal Release
+    /// matches a previously tracked press and is a no-op. An **orphan** Release
+    /// (no tracked press) on a wide grapheme (CJK/emoji) means Windows IME
+    /// confirmed that character with `bKeyDown = FALSE`, swallowing the press;
+    /// re-insert the character here so fast/IME typing does not drop it.
+    ///
+    /// Returns `true` if a character was recovered (caller should repaint).
+    pub(super) fn handle_key_release_event(&mut self, code: KeyCode) -> bool {
+        if let Some(pos) = self.pending_press_keys.iter().rposition(|k| *k == code) {
+            self.pending_press_keys.remove(pos);
+            return false;
+        }
+        // Orphan Release: no matching press was seen.
+        let KeyCode::Char(ch) = code else {
+            return false;
+        };
+        if composer_contains_wide_grapheme(&ch.to_string()) {
+            crate::logging::diag(&format!(
+                "input: recovered orphan wide Release {:?} len={}->{}",
+                ch,
+                self.input.len(),
+                self.input.len() + ch.len_utf8(),
+            ));
+            insert_input_text(self, &ch.to_string());
+            return true;
+        }
+        false
     }
 
     #[cfg(test)]

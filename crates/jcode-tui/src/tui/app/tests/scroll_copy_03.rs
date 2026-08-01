@@ -1885,3 +1885,44 @@ fn composer_wide_input_arms_full_repaint_but_ascii_does_not() {
         "Backspace over a wide char must arm force_full_repaint"
     );
 }
+
+/// Regression for dropped characters while typing Chinese on Windows: when the
+/// IME confirms a CJK character it reports `bKeyDown = FALSE` (a Release with no
+/// preceding Press), so jcode must re-insert the wide grapheme arriving as an
+/// orphan Release. A normal Press→Release pair must NOT re-insert (no double).
+#[test]
+fn orphan_wide_release_is_recovered_but_normal_pair_is_not() {
+    let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 20);
+    let _ = render_and_snap(&app, &mut terminal);
+
+    // 1. A normal Press→Release pair for a CJK char inserts once via the press
+    //    path; the matching Release is a no-op. Simulate what the dispatcher
+    //    does: record the press, then insert via handle_key_press_event.
+    app.pending_press_keys.push(KeyCode::Char('好'));
+    app.handle_key_press_event(crossterm::event::KeyEvent::new(
+        KeyCode::Char('好'),
+        KeyModifiers::empty(),
+    ))
+    .unwrap();
+    assert_eq!(app.input, "好");
+    assert!(
+        !app.handle_key_release_event(KeyCode::Char('好')),
+        "matching Release must be a no-op (no double insert)"
+    );
+    assert_eq!(app.input, "好", "Release must not re-insert a matched char");
+
+    // 2. An orphan wide Release (no tracked press) must recover the character.
+    assert!(
+        app.handle_key_release_event(KeyCode::Char('可')),
+        "orphan wide Release must be recovered"
+    );
+    assert_eq!(app.input, "好可", "orphan wide Release must insert the char");
+
+    // 3. An orphan ASCII Release (not wide) must NOT insert (avoid noise from
+    //    IME auxiliary space/backspace events).
+    assert!(
+        !app.handle_key_release_event(KeyCode::Char('a')),
+        "orphan ASCII Release must not insert"
+    );
+    assert_eq!(app.input, "好可", "ASCII orphan must not change the composer");
+}

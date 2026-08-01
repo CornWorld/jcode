@@ -1570,6 +1570,15 @@ pub struct App {
     /// without the clear-then-repaint flicker around kitty image placeholders
     /// (issue #404).
     force_full_repaint: bool,
+    /// KeyCodes whose `Press` has been seen but whose matching `Release` has not
+    /// yet arrived. On Windows IME composition, the OS can report a confirmed
+    /// CJK character with `bKeyDown = FALSE` (only a Release, no Press), so a
+    /// wide grapheme arriving as an orphan Release here means the press was
+    /// swallowed by the IME and jcode must re-insert the character it was
+    /// about to drop. Tracked as a stack (most recent first) so a legit
+    /// Press→Release pair can be matched and popped, and an orphan wide
+    /// Release (no pending press) is recovered by inserting its char.
+    pending_press_keys: Vec<crossterm::event::KeyCode>,
     /// Last mouse scroll event timestamp (for trackpad velocity detection)
     last_mouse_scroll: Option<Instant>,
     /// Active smooth-scroll target for queued mouse-wheel motion.

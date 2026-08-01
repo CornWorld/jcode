@@ -422,8 +422,18 @@ fn apply_terminal_event(
             crate::tui::ui::note_key_event_read();
             app.note_client_interaction();
             app.update_copy_badge_key_event(key);
-            if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
-                app.handle_key_press_event(key)?;
+            match key.kind {
+                KeyEventKind::Press | KeyEventKind::Repeat => {
+                    app.handle_key_press_event(key)?;
+                }
+                KeyEventKind::Release => {
+                    // Windows IME reports some confirmed CJK as an orphan
+                    // Release (bKeyDown=FALSE, no Press). Recover the wide
+                    // character so it is not dropped.
+                    if app.handle_key_release_event(key.code) {
+                        crate::tui::ui::note_key_event_read();
+                    }
+                }
             }
             Ok(true)
         }
