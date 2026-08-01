@@ -1127,16 +1127,15 @@ pub(super) fn composer_contains_wide_grapheme(input: &str) -> bool {
 }
 
 /// Whether a character that arrived as an orphan key *Release* should be
-/// re-inserted. Letters (ASCII alpha and wide CJK/emoji) are what a user
-/// actually types, so an orphan Release of one means the matching Press was
-/// dropped and the character would otherwise be lost. Space, punctuation, and
-/// control keys are excluded: the OS/IME also emits those as auxiliary events
-/// (space confirms an IME candidate, backspace revises pinyin, punctuation
-/// accompanies a confirmed CJK char), and re-inserting them would add noise.
+/// re-inserted. Only **wide** graphemes (CJK/emoji) are recovered: they are
+/// produced solely by an IME confirming a character, so an orphan Release of
+/// one means the matching Press was dropped and the character would otherwise
+/// be lost. ASCII letters must NOT be recovered here: during IME pinyin
+/// composition the OS leaks the Releases of the pinyin letters (e.g. the `i`
+/// in `sheji`) that were consumed for composition, and re-inserting those
+/// adds spurious English characters. Space, punctuation, and control keys are
+/// likewise excluded for the same reason.
 fn is_recoverable_orphan_char(ch: char) -> bool {
-    if ch.is_ascii_alphabetic() {
-        return true;
-    }
     use unicode_width::UnicodeWidthChar;
     ch.width().unwrap_or(0) > 1
 }

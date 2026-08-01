@@ -1918,13 +1918,15 @@ fn orphan_wide_release_is_recovered_but_normal_pair_is_not() {
     );
     assert_eq!(app.input, "好可", "orphan wide Release must insert the char");
 
-    // 3. An orphan ASCII *letter* Release must recover the character too
-    //    (Windows Terminal ConPTY also drops English presses).
+    // 3. An orphan ASCII *letter* Release must NOT be recovered: during IME
+    //    pinyin composition the OS leaks the Releases of pinyin letters
+    //    (e.g. the `i` in `sheji`) consumed for composition, so re-inserting
+    //    them would add spurious English characters.
     assert!(
-        app.handle_key_release_event(KeyCode::Char('a')),
-        "orphan ASCII letter Release must be recovered"
+        !app.handle_key_release_event(KeyCode::Char('a')),
+        "orphan ASCII letter Release must NOT insert (IME pinyin leak)"
     );
-    assert_eq!(app.input, "好可a", "orphan ASCII letter must insert the char");
+    assert_eq!(app.input, "好可", "orphan ASCII letter must not change composer");
 
     // 4. An orphan space / punctuation Release must NOT insert (avoid noise from
     //    IME auxiliary space-to-confirm-candidate and punctuated CJK events).
@@ -1937,7 +1939,7 @@ fn orphan_wide_release_is_recovered_but_normal_pair_is_not() {
         "orphan punctuation must not insert (IME auxiliary)"
     );
     assert_eq!(
-        app.input, "好可a",
+        app.input, "好可",
         "space/punct orphans must not change the composer"
     );
 }
