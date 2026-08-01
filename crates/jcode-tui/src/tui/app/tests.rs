@@ -1746,3 +1746,32 @@ fn remote_clear_resets_provider_reported_context_usage() {
 
     assert_clear_usage_reset(&app);
 }
+
+#[test]
+fn pasted_windows_path_with_underscores_is_preserved() {
+    // Regression: pasting a Windows path with underscores and a backslash-digit
+    // (e.g. `tools\levels_out\7-X.adofai`) must land in the composer verbatim.
+    // Some terminals deliver a paste as a single bracketed Event::Paste; others
+    // deliver it as a stream of KeyEvents. Both must preserve the exact bytes.
+    let mut app = create_test_app();
+    crate::tui::app::input::handle_text_paste(
+        &mut app,
+        r"tools\levels_out\7-X.adofai".to_string(),
+    );
+    assert_eq!(app.input, r"tools\levels_out\7-X.adofai");
+
+    // Simulate a terminal that delivers each character as a key event where a
+    // shifted symbol arrives as its base key + SHIFT (e.g. `_` is Shift+`-` on
+    // a US layout). This is what breaks the paste into mangled text unless the
+    // shifted symbols are reconstructed.
+    let mut key_app = create_test_app();
+    for ch in r"tools\levels_out\7-X.adofai".chars() {
+        let (code, modifiers) = if ch == '_' {
+            (KeyCode::Char('-'), KeyModifiers::SHIFT)
+        } else {
+            (KeyCode::Char(ch), KeyModifiers::empty())
+        };
+        key_app.handle_key(code, modifiers).unwrap();
+    }
+    assert_eq!(key_app.input, r"tools\levels_out\7-X.adofai");
+}

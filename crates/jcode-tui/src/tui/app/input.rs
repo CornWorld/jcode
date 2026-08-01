@@ -555,10 +555,24 @@ mod tests {
     }
 
     #[test]
-    fn shifted_printable_fallback_does_not_synthesize_us_symbol_layout() {
+    fn shifted_printable_fallback_synthesizes_us_shifted_symbols() {
+        // A terminal reporting a shifted character as base key + SHIFT (the
+        // Windows Terminal key-event paste mode) must yield the shifted symbol.
+        assert_eq!(shifted_printable_fallback('-', KeyModifiers::SHIFT), '_');
+        assert_eq!(shifted_printable_fallback('.', KeyModifiers::SHIFT), '>');
+        assert_eq!(shifted_printable_fallback(',', KeyModifiers::SHIFT), '<');
+        assert_eq!(shifted_printable_fallback('[', KeyModifiers::SHIFT), '{');
+        assert_eq!(shifted_printable_fallback(']', KeyModifiers::SHIFT), '}');
+        assert_eq!(shifted_printable_fallback('\\', KeyModifiers::SHIFT), '|');
+        assert_eq!(shifted_printable_fallback(';', KeyModifiers::SHIFT), ':');
+        assert_eq!(shifted_printable_fallback('\'', KeyModifiers::SHIFT), '"');
+        assert_eq!(shifted_printable_fallback('`', KeyModifiers::SHIFT), '~');
+        // Digits are left to the terminal's translation (US Shift+1 is `!`, but
+        // synthesizing it would corrupt non-US layouts), and a symbol the
+        // terminal already translated is preserved unchanged.
         assert_eq!(shifted_printable_fallback('7', KeyModifiers::SHIFT), '7');
-        assert_eq!(shifted_printable_fallback('8', KeyModifiers::SHIFT), '8');
-        assert_eq!(shifted_printable_fallback('=', KeyModifiers::SHIFT), '=');
+        assert_eq!(shifted_printable_fallback('&', KeyModifiers::SHIFT), '&');
+        assert_eq!(shifted_printable_fallback('(', KeyModifiers::SHIFT), '(');
     }
 
     #[test]
@@ -1307,12 +1321,43 @@ fn is_layout_modified_text_char(c: char) -> bool {
     !c.is_control() && c != ' ' && !c.is_ascii_alphanumeric()
 }
 
+/// Shifted symbol for a US QWERTY base key when SHIFT is held, or `None` when
+/// the key has no shifted symbol (it already is one, or is layout-ambiguous).
+///
+/// Some terminals (notably Windows Terminal / conhost when a paste or a
+/// physical key is reported) deliver a shifted character as the base key plus
+/// the SHIFT modifier instead of the already-translated printable character
+/// (e.g. `_` arrives as `-` + SHIFT). Letters are handled by the casing branch;
+/// this map reconstructs the common punctuation symbols so pasted paths such as
+/// `tools\levels_out\7-X.adofai` keep their underscores instead of becoming
+/// dashes. It only covers the symbols that are unambiguous on a US QWERTY
+/// layout; keys whose shifted form is a digit or less-common symbol are left to
+/// the terminal's own translation to avoid corrupting non-US layouts.
+fn us_shifted_symbol(c: char) -> Option<char> {
+    Some(match c {
+        '-' => '_',
+        '[' => '{',
+        ']' => '}',
+        '\\' => '|',
+        ';' => ':',
+        '\'' => '"',
+        ',' => '<',
+        '.' => '>',
+        '`' => '~',
+        _ => return None,
+    })
+}
+
 fn shifted_printable_fallback(c: char, modifiers: KeyModifiers) -> char {
-    if modifiers.contains(KeyModifiers::SHIFT) && c.is_ascii_lowercase() {
+    if !modifiers.contains(KeyModifiers::SHIFT) {
+        return c;
+    }
+    if c.is_ascii_lowercase() {
         return c.to_ascii_uppercase();
     }
-
-    c
+    // Reconstruct a US shifted punctuation symbol when the terminal reported
+    // the physical base key with SHIFT instead of the translated character.
+    us_shifted_symbol(c).unwrap_or(c)
 }
 
 pub(super) fn clear_input_for_escape(app: &mut App) {
