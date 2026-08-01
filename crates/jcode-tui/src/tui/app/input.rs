@@ -1098,6 +1098,16 @@ pub(super) fn insert_input_text(app: &mut App, text: &str) {
 
     app.reset_tab_completion();
     app.sync_model_picker_preview_from_input();
+    // Record the most recently inserted character so an orphan Release
+    // recovery can dedupe against a char already inserted by its Press
+    // (Windows IME emits a CJK Press that inserts plus a trailing orphan
+    // Release for the same char). Only track single wide graphemes / letters,
+    // which is what recovery can re-insert.
+    if text.chars().count() == 1 {
+        if let Some(ch) = text.chars().next() {
+            app.last_inserted_char = Some((ch, std::time::Instant::now()));
+        }
+    }
     maybe_repaint_for_wide_input(app);
 }
 
@@ -2846,6 +2856,23 @@ impl App {
             return false;
         };
         if is_recoverable_orphan_char(ch) {
+            // Dedupe against a char just inserted by its own Press. Windows IME
+            // can emit a CJK char as a normal Press (which inserts) and then a
+            // trailing orphan Release for the *same* char (bKeyDown=FALSE). If
+            // that same char was inserted within a short window, this Release is
+            // the echo of the already-handled Press, not a dropped press.
+            const ORPHAN_DEDUPE_WINDOW: std::time::Duration =
+                std::time::Duration::from_millis(60);
+            if let Some((last_ch, last_at)) = self.last_inserted_char
+                && last_ch == ch
+                && last_at.elapsed() < ORPHAN_DEDUPE_WINDOW
+            {
+                crate::logging::diag(&format!(
+                    "input: skipped orphan Release {:?} (already inserted via Press)",
+                    ch
+                ));
+                return false;
+            }
             crate::logging::diag(&format!(
                 "input: recovered orphan Release {:?} len={}->{}",
                 ch,

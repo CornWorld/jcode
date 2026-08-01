@@ -1579,6 +1579,15 @@ pub struct App {
     /// Press→Release pair can be matched and popped, and an orphan wide
     /// Release (no pending press) is recovered by inserting its char.
     pending_press_keys: Vec<crossterm::event::KeyCode>,
+    /// Most recently inserted character and the instant it was inserted. Used
+    /// to dedupe an orphan Release recovery against a character that was just
+    /// inserted by its Press: Windows IME can emit a CJK char as a normal
+    /// Press (which inserts) *and* a trailing orphan Release for the same
+    /// char (bKeyDown=FALSE), so without this guard the Release recovery
+    /// re-inserts it a second time. If a Release arrives within a short window
+    /// for the same char that was just inserted, it is treated as already
+    /// handled.
+    last_inserted_char: Option<(char, std::time::Instant)>,
     /// Last mouse scroll event timestamp (for trackpad velocity detection)
     last_mouse_scroll: Option<Instant>,
     /// Active smooth-scroll target for queued mouse-wheel motion.

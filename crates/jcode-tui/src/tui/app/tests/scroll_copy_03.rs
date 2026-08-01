@@ -1942,4 +1942,25 @@ fn orphan_wide_release_is_recovered_but_normal_pair_is_not() {
         app.input, "好可",
         "space/punct orphans must not change the composer"
     );
+
+    // 5. A repeated orphan Release for a char just inserted (via its Press or a
+    //    prior recovery) within the dedupe window must NOT re-insert. Windows
+    //    IME can emit a CJK Press (inserts) plus a trailing orphan Release for
+    //    the same char; without dedupe this double-inserts every CJK char.
+    //    Insert '标' via a normal press, then an orphan Release for '标' right
+    //    after must be skipped.
+    app.handle_key_press_event(crossterm::event::KeyEvent::new(
+        KeyCode::Char('标'),
+        KeyModifiers::empty(),
+    ))
+    .unwrap();
+    assert_eq!(app.input, "好可标");
+    assert!(
+        !app.handle_key_release_event(KeyCode::Char('标')),
+        "orphan Release for a just-inserted CJK char must be deduped"
+    );
+    assert_eq!(
+        app.input, "好可标",
+        "dedupe must not re-insert a char already inserted via Press"
+    );
 }
