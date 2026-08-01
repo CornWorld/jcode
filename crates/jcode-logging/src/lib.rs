@@ -309,6 +309,18 @@ pub fn debug(message: &str) {
     }
 }
 
+/// Log a diagnostic message unconditionally. Unlike [`debug`] this is not
+/// gated on `JCODE_TRACE`, so it can capture transient input/render behavior
+/// (fast typing, IME composition, cursor regression) in any process regardless
+/// of how it was launched. Writes a `DIAG` level line so it is easy to grep.
+pub fn diag(message: &str) {
+    if let Ok(mut guard) = LOGGER.lock() {
+        if let Some(logger) = guard.as_mut() {
+            logger.write("DIAG", message);
+        }
+    }
+}
+
 pub fn event_info<K, V, I>(event_name: &str, fields: I)
 where
     K: AsRef<str>,

@@ -168,7 +168,7 @@ pub(super) fn handle_terminal_event(
     // typing or IME composition.
     more_after_drain = crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false);
     if drained > 0 || more_after_drain {
-        crate::logging::debug(&format!(
+        crate::logging::diag(&format!(
             "tui: drained {} buffered event(s) after first, overran_cap={}",
             drained, more_after_drain
         ));

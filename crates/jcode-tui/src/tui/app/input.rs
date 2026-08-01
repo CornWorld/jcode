@@ -1078,7 +1078,7 @@ pub(super) fn insert_input_text(app: &mut App, text: &str) {
     let before_len = app.input.len();
     app.input.insert_str(app.cursor_pos, text);
     app.cursor_pos += text.len();
-    crate::logging::debug(&format!(
+    crate::logging::diag(&format!(
         "input: insert {:?} bytes={} chars={} at cursor={} len={}->{}",
         if text.len() <= 32 { text } else { "[long]" },
         text.len(),
@@ -2733,7 +2733,7 @@ impl App {
             modifiers,
         });
 
-        crate::logging::debug(&format!(
+        crate::logging::diag(&format!(
             "input: key {:?} kind={:?} mods={:?} input_len={} cursor={}",
             event.code,
             event.kind,

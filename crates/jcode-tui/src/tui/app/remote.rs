@@ -366,7 +366,7 @@ pub(super) async fn handle_terminal_event(
         }
     }
     if drained > 0 {
-        crate::logging::debug(&format!(
+        crate::logging::diag(&format!(
             "tui: drained {} buffered event(s) after first",
             drained
         ));
