@@ -405,6 +405,14 @@ async fn apply_terminal_event(
             crate::tui::ui::note_key_event_read();
             input_attribution.event = Some(format!("key:{:?}:{:?}", key.code, key.kind));
             input_attribution.scroll_delta = key_scroll_delta(&key);
+            crate::logging::diag(&format!(
+                "input: key {:?} kind={:?} mods={:?} input_len={} cursor={}",
+                key.code,
+                key.kind,
+                key.modifiers,
+                app.input.len(),
+                app.cursor_pos,
+            ));
             app.note_client_interaction();
             app.update_copy_badge_key_event(key);
             if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
@@ -772,6 +780,14 @@ fn handle_terminal_event_while_disconnected(
         Some(Ok(Event::Key(key))) => {
             app.note_client_interaction();
             app.update_copy_badge_key_event(key);
+            crate::logging::diag(&format!(
+                "input: key {:?} kind={:?} mods={:?} input_len={} cursor={}",
+                key.code,
+                key.kind,
+                key.modifiers,
+                app.input.len(),
+                app.cursor_pos,
+            ));
             if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) {
                 handle_disconnected_key_event(app, key)?;
             }
