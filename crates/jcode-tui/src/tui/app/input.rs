@@ -1074,8 +1074,19 @@ pub(super) fn insert_input_text(app: &mut App, text: &str) {
         app.cursor_pos = app.input.len();
     }
 
+    let before_cursor = app.cursor_pos;
+    let before_len = app.input.len();
     app.input.insert_str(app.cursor_pos, text);
     app.cursor_pos += text.len();
+    crate::logging::debug(&format!(
+        "input: insert {:?} bytes={} chars={} at cursor={} len={}->{}",
+        if text.len() <= 32 { text } else { "[long]" },
+        text.len(),
+        text.chars().count(),
+        before_cursor,
+        before_len,
+        app.input.len(),
+    ));
 
     // Typing the final command character immediately arms picker filtering.
     // Without this, users can keep typing the command token or press Enter
@@ -2721,6 +2732,15 @@ impl App {
             code: code_str,
             modifiers,
         });
+
+        crate::logging::debug(&format!(
+            "input: key {:?} kind={:?} mods={:?} input_len={} cursor={}",
+            event.code,
+            event.kind,
+            event.modifiers,
+            self.input.len(),
+            self.cursor_pos,
+        ));
 
         self.update_copy_badge_key_event(event);
         if matches!(

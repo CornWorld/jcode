@@ -345,10 +345,12 @@ pub(super) async fn handle_terminal_event(
     // each one costs handle + full draw serially, which reads as input-line
     // lag. Mirrors the identical drain in `local::handle_terminal_event`.
     const MAX_DRAINED_EVENTS_PER_WAKE: usize = 32;
+    let mut drained = 0usize;
     for _ in 0..MAX_DRAINED_EVENTS_PER_WAKE {
         if !crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false) {
             break;
         }
+        drained += 1;
         if let Ok(event) = crossterm::event::read() {
             // A single event must not abort draining the rest of the burst
             // (fast typing / IME composition). Log and continue so the later
@@ -362,6 +364,12 @@ pub(super) async fn handle_terminal_event(
                     false
                 });
         }
+    }
+    if drained > 0 {
+        crate::logging::debug(&format!(
+            "tui: drained {} buffered event(s) after first",
+            drained
+        ));
     }
     Ok(needs_redraw)
 }

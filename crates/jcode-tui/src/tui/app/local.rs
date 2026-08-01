@@ -141,10 +141,13 @@ pub(super) fn handle_terminal_event(
     crate::logging::watchdog::beat("tui.terminal_event");
     let mut needs_redraw = apply_terminal_event(app, terminal, event)?;
     const MAX_DRAINED_EVENTS_PER_WAKE: usize = 32;
+    let mut drained = 0usize;
+    let mut more_after_drain = false;
     for _ in 0..MAX_DRAINED_EVENTS_PER_WAKE {
         if !crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false) {
             break;
         }
+        drained += 1;
         if let Ok(event) = crossterm::event::read() {
             // A single event must not abort draining the rest of the burst
             // (fast typing / IME composition). Log and continue so the later
@@ -159,6 +162,16 @@ pub(super) fn handle_terminal_event(
                     false
                 });
         }
+    }
+    // Did the burst overrun the per-wake cap? If so the tail is deferred to the
+    // next wake, which can read as input lag / a falling-back cursor under fast
+    // typing or IME composition.
+    more_after_drain = crossterm::event::poll(std::time::Duration::ZERO).unwrap_or(false);
+    if drained > 0 || more_after_drain {
+        crate::logging::debug(&format!(
+            "tui: drained {} buffered event(s) after first, overran_cap={}",
+            drained, more_after_drain
+        ));
     }
     Ok(needs_redraw)
 }
