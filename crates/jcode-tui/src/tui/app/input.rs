@@ -1042,8 +1042,6 @@ pub(super) fn insert_input_text(app: &mut App, text: &str) {
     if text.is_empty() {
         return;
     }
-
-    // Composer insertions should behave the same in local and remote modes.
     // Unless the user explicitly enabled typing scroll lock, beginning or
     // continuing a draft resumes tail-follow before the input height can change.
     // Keeping this at the shared insertion boundary also covers paste and
@@ -1100,6 +1098,32 @@ pub(super) fn insert_input_text(app: &mut App, text: &str) {
 
     app.reset_tab_completion();
     app.sync_model_picker_preview_from_input();
+    maybe_repaint_for_wide_input(app);
+}
+
+/// Arm a full repaint when the composer now contains wide graphemes
+/// (CJK / emoji). Ratatui's diff does not re-emit the trailing cell after a
+/// wide grapheme when its symbol is unchanged (ratatui issue #2357), so
+/// inserting or deleting a wide character on the input line can leave a stale
+/// "ghost" glyph behind — the visual overlap reported while typing Chinese.
+/// Buffer invalidation re-emits every cell without the ED2 clear escape, so it
+/// is flicker-safe around image placeholders (issue #404). This only arms the
+/// flag; the next frame performs the repaint, so idle/low-cost fast paths are
+/// not affected.
+fn maybe_repaint_for_wide_input(app: &mut App) {
+    if !app.force_full_repaint && composer_contains_wide_grapheme(&app.input) {
+        crate::logging::diag(&format!(
+            "input: full-repaint armed for wide composer (input_len={} chars={})",
+            app.input.len(),
+            app.input.chars().count(),
+        ));
+        app.request_full_repaint();
+    }
+}
+
+pub(super) fn composer_contains_wide_grapheme(input: &str) -> bool {
+    use unicode_width::UnicodeWidthChar;
+    input.chars().any(|c| c.width().unwrap_or(0) > 1)
 }
 
 pub(super) fn handle_text_input(app: &mut App, text: &str) -> bool {
@@ -1916,11 +1940,15 @@ pub(super) fn delete_input_to_start(app: &mut App) {
 }
 
 pub(super) fn delete_input_to_end(app: &mut App) {
+    let had_wide = composer_contains_wide_grapheme(&app.input);
     if app.cursor_pos < app.input.len() {
         app.remember_input_undo_state();
     }
     app.input.truncate(app.cursor_pos);
     app.sync_model_picker_preview_from_input();
+    if had_wide || composer_contains_wide_grapheme(&app.input) {
+        app.request_full_repaint();
+    }
 }
 
 pub(super) fn handle_super_key(app: &mut App, code: KeyCode) -> bool {
@@ -1964,12 +1992,16 @@ pub(super) fn handle_super_key(app: &mut App, code: KeyCode) -> bool {
 
 pub(super) fn delete_input_word_back(app: &mut App) {
     let start = app.find_word_boundary_back();
+    let had_wide = composer_contains_wide_grapheme(&app.input);
     if start < app.cursor_pos {
         app.remember_input_undo_state();
     }
     app.input.drain(start..app.cursor_pos);
     app.cursor_pos = start;
     app.sync_model_picker_preview_from_input();
+    if had_wide || composer_contains_wide_grapheme(&app.input) {
+        app.request_full_repaint();
+    }
 }
 
 pub(super) fn handle_alt_key(app: &mut App, code: KeyCode) -> bool {
@@ -2562,21 +2594,29 @@ pub(super) fn handle_basic_key(app: &mut App, code: KeyCode) -> bool {
         KeyCode::Backspace => {
             if app.cursor_pos > 0 {
                 let prev = crate::tui::core::prev_char_boundary(&app.input, app.cursor_pos);
+                let had_wide = composer_contains_wide_grapheme(&app.input);
                 app.remember_input_undo_state();
                 app.input.drain(prev..app.cursor_pos);
                 app.cursor_pos = prev;
                 app.reset_tab_completion();
                 app.sync_model_picker_preview_from_input();
+                if had_wide || composer_contains_wide_grapheme(&app.input) {
+                    app.request_full_repaint();
+                }
             }
             true
         }
         KeyCode::Delete => {
             if app.cursor_pos < app.input.len() {
                 let next = crate::tui::core::next_char_boundary(&app.input, app.cursor_pos);
+                let had_wide = composer_contains_wide_grapheme(&app.input);
                 app.remember_input_undo_state();
                 app.input.drain(app.cursor_pos..next);
                 app.reset_tab_completion();
                 app.sync_model_picker_preview_from_input();
+                if had_wide || composer_contains_wide_grapheme(&app.input) {
+                    app.request_full_repaint();
+                }
             }
             true
         }

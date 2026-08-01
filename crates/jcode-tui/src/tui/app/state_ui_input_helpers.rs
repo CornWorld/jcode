@@ -1593,10 +1593,16 @@ impl App {
 
     pub(super) fn undo_input_change(&mut self) {
         if let Some((input, cursor_pos)) = self.input_undo_stack.pop() {
+            let had_wide = input::composer_contains_wide_grapheme(&self.input);
             self.input = input;
             self.cursor_pos = cursor_pos.min(self.input.len());
             self.reset_tab_completion();
             self.sync_model_picker_preview_from_input();
+            // Restoring can re-introduce wide graphemes; repaint so a trailing
+            // cell after a wide glyph is re-emitted (ratatui #2357 ghost).
+            if had_wide || input::composer_contains_wide_grapheme(&self.input) {
+                self.request_full_repaint();
+            }
             self.set_status_notice("↶ Input restored");
         } else {
             self.set_status_notice("Nothing to undo");

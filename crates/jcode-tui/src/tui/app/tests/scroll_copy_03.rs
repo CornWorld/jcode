@@ -1840,3 +1840,48 @@ fn command_palette_open_does_not_move_existing_rows() {
     }
     assert!(checked >= 3, "expected transcript rows to sample:\n{before}");
 }
+
+/// Regression for the Chinese-input overlap (ratatui #2357 ghost): inserting a
+/// wide grapheme (CJK/emoji) into the composer must arm a soft full repaint so
+/// the next frame re-emits the trailing cell after the wide glyph. ASCII input
+/// must NOT arm it (single-width chars have no trailing cell, so the repaint is
+/// pure overhead there).
+#[test]
+fn composer_wide_input_arms_full_repaint_but_ascii_does_not() {
+    use crate::tui::app::input;
+
+    let (mut app, mut terminal) = create_scroll_test_app(100, 30, 1, 20);
+    let _ = render_and_snap(&app, &mut terminal);
+
+    // ASCII first: single-width, must not arm the full repaint.
+    app.force_full_repaint = false;
+    app.force_full_redraw = false;
+    input::handle_text_input(&mut app, "hello");
+    assert!(
+        !app.force_full_repaint && !app.force_full_redraw,
+        "ASCII input must not arm a full repaint"
+    );
+
+    // CJK: wide graphemes must arm the soft repaint (never the hard clear).
+    app.force_full_repaint = false;
+    app.force_full_redraw = false;
+    input::handle_text_input(&mut app, "中文");
+    assert!(
+        app.force_full_repaint,
+        "wide (CJK) input must arm force_full_repaint to clear the #2357 ghost"
+    );
+    assert!(
+        !app.force_full_redraw,
+        "wide input must not arm the hard-clear path (issue #404 flicker)"
+    );
+
+    // Backspace over a wide char must also arm a repaint (deletion shifts the
+    // trailing cell). We consume one CJK char (3 bytes) from the end.
+    app.force_full_repaint = false;
+    app.cursor_pos = app.input.len();
+    app.handle_key(KeyCode::Backspace, KeyModifiers::empty()).unwrap();
+    assert!(
+        app.force_full_repaint,
+        "Backspace over a wide char must arm force_full_repaint"
+    );
+}
