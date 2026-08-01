@@ -2733,15 +2733,6 @@ impl App {
             modifiers,
         });
 
-        crate::logging::diag(&format!(
-            "input: key {:?} kind={:?} mods={:?} input_len={} cursor={}",
-            event.code,
-            event.kind,
-            event.modifiers,
-            self.input.len(),
-            self.cursor_pos,
-        ));
-
         self.update_copy_badge_key_event(event);
         if matches!(
             event.kind,
@@ -2752,6 +2743,14 @@ impl App {
     }
 
     pub(super) fn handle_key_press_event(&mut self, event: KeyEvent) -> Result<()> {
+        crate::logging::diag(&format!(
+            "input: key {:?} kind={:?} mods={:?} input_len={} cursor={}",
+            event.code,
+            event.kind,
+            event.modifiers,
+            self.input.len(),
+            self.cursor_pos,
+        ));
         self.handle_key_core(
             event.code,
             event.modifiers,
