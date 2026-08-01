@@ -1918,11 +1918,26 @@ fn orphan_wide_release_is_recovered_but_normal_pair_is_not() {
     );
     assert_eq!(app.input, "好可", "orphan wide Release must insert the char");
 
-    // 3. An orphan ASCII Release (not wide) must NOT insert (avoid noise from
-    //    IME auxiliary space/backspace events).
+    // 3. An orphan ASCII *letter* Release must recover the character too
+    //    (Windows Terminal ConPTY also drops English presses).
     assert!(
-        !app.handle_key_release_event(KeyCode::Char('a')),
-        "orphan ASCII Release must not insert"
+        app.handle_key_release_event(KeyCode::Char('a')),
+        "orphan ASCII letter Release must be recovered"
     );
-    assert_eq!(app.input, "好可", "ASCII orphan must not change the composer");
+    assert_eq!(app.input, "好可a", "orphan ASCII letter must insert the char");
+
+    // 4. An orphan space / punctuation Release must NOT insert (avoid noise from
+    //    IME auxiliary space-to-confirm-candidate and punctuated CJK events).
+    assert!(
+        !app.handle_key_release_event(KeyCode::Char(' ')),
+        "orphan space must not insert (IME auxiliary)"
+    );
+    assert!(
+        !app.handle_key_release_event(KeyCode::Char(',')),
+        "orphan punctuation must not insert (IME auxiliary)"
+    );
+    assert_eq!(
+        app.input, "好可a",
+        "space/punct orphans must not change the composer"
+    );
 }

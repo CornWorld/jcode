@@ -1126,6 +1126,21 @@ pub(super) fn composer_contains_wide_grapheme(input: &str) -> bool {
     input.chars().any(|c| c.width().unwrap_or(0) > 1)
 }
 
+/// Whether a character that arrived as an orphan key *Release* should be
+/// re-inserted. Letters (ASCII alpha and wide CJK/emoji) are what a user
+/// actually types, so an orphan Release of one means the matching Press was
+/// dropped and the character would otherwise be lost. Space, punctuation, and
+/// control keys are excluded: the OS/IME also emits those as auxiliary events
+/// (space confirms an IME candidate, backspace revises pinyin, punctuation
+/// accompanies a confirmed CJK char), and re-inserting them would add noise.
+fn is_recoverable_orphan_char(ch: char) -> bool {
+    if ch.is_ascii_alphabetic() {
+        return true;
+    }
+    use unicode_width::UnicodeWidthChar;
+    ch.width().unwrap_or(0) > 1
+}
+
 pub(super) fn handle_text_input(app: &mut App, text: &str) -> bool {
     if text.is_empty() {
         return false;
@@ -2809,9 +2824,15 @@ impl App {
     /// Handle a key *Release* event. Called by the local/remote dispatchers for
     /// `KeyEventKind::Release`, which are otherwise ignored. A normal Release
     /// matches a previously tracked press and is a no-op. An **orphan** Release
-    /// (no tracked press) on a wide grapheme (CJK/emoji) means Windows IME
-    /// confirmed that character with `bKeyDown = FALSE`, swallowing the press;
-    /// re-insert the character here so fast/IME typing does not drop it.
+    /// (no tracked press) means the OS/terminal dropped the matching Press:
+    /// under Windows Terminal's ConPTY input forwarding (and during IME
+    /// composition), fast key delivery can report `bKeyDown = FALSE` with no
+    /// preceding press, so jcode — which inserts on Press only — would drop the
+    /// character. Recover it here from the orphan Release. Recoverable orphans
+    /// are letters (ASCII alpha and wide CJK/emoji); space, punctuation, and
+    /// control keys are left alone because those are also produced as harmless
+    /// IME auxiliary events (space to confirm a candidate, backspace to revise
+    /// pinyin) and re-inserting them would add noise.
     ///
     /// Returns `true` if a character was recovered (caller should repaint).
     pub(super) fn handle_key_release_event(&mut self, code: KeyCode) -> bool {
@@ -2819,13 +2840,15 @@ impl App {
             self.pending_press_keys.remove(pos);
             return false;
         }
-        // Orphan Release: no matching press was seen.
+        // Orphan Release: no matching press was seen. Only recover character
+        // keys that a user actually types (letters + wide graphemes), never
+        // space/punct/control which are IME-auxiliary and would add noise.
         let KeyCode::Char(ch) = code else {
             return false;
         };
-        if composer_contains_wide_grapheme(&ch.to_string()) {
+        if is_recoverable_orphan_char(ch) {
             crate::logging::diag(&format!(
-                "input: recovered orphan wide Release {:?} len={}->{}",
+                "input: recovered orphan Release {:?} len={}->{}",
                 ch,
                 self.input.len(),
                 self.input.len() + ch.len_utf8(),
