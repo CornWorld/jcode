@@ -350,7 +350,17 @@ pub(super) async fn handle_terminal_event(
             break;
         }
         if let Ok(event) = crossterm::event::read() {
-            needs_redraw |= apply_terminal_event(app, terminal, remote, Some(Ok(event))).await?;
+            // A single event must not abort draining the rest of the burst
+            // (fast typing / IME composition). Log and continue so the later
+            // events are still accepted instead of being dropped.
+            needs_redraw |= apply_terminal_event(app, terminal, remote, Some(Ok(event)))
+                .await
+                .unwrap_or_else(|err| {
+                    crate::logging::warn(&format!(
+                        "tui: skipped a terminal event in burst: {err}"
+                    ));
+                    false
+                });
         }
     }
     Ok(needs_redraw)
