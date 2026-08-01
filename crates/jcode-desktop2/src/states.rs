@@ -34,6 +34,8 @@ pub const NODES: &[(&str, NodeBuilder)] = &[
     ("reasoning_streaming", reasoning_streaming),
     ("reasoning_paragraphs", reasoning_paragraphs),
     ("tool_progress", tool_progress),
+    ("background_progress", background_progress),
+    ("background_progress_many", background_progress_many),
     ("edit_card", edit_card),
     ("edit_cards_many", edit_cards_many),
     ("working", working),
@@ -43,6 +45,7 @@ pub const NODES: &[(&str, NodeBuilder)] = &[
     ("scrolled_back", scrolled_back),
     ("markdown", markdown),
     ("markdown_typography", markdown_typography),
+    ("markdown_structure", markdown_structure),
     ("latex", latex),
     ("code_block", code_block),
     ("session_strip", session_strip),
@@ -139,6 +142,9 @@ fn connecting() -> Model {
         // Pinned off: a live RAM figure would make every capture depend on
         // the machine and moment it ran on.
         mem: None,
+        // No bars on screen by default, so nothing animates: a node that wants
+        // one sets it (see `background_progress`).
+        progress_clock: None,
         // Settled: a node renders the window after the boot reveal, so every
         // existing capture is unchanged by it. The reveal has its own nodes.
         boot: crate::boot::Boot::default(),
@@ -250,6 +256,9 @@ fn attached_empty() -> Model {
         // Pinned off: a live RAM figure would make every capture depend on
         // the machine and moment it ran on.
         mem: None,
+        // No bars on screen by default, so nothing animates: a node that wants
+        // one sets it (see `background_progress`).
+        progress_clock: None,
         // Settled: a node renders the window after the boot reveal, so every
         // existing capture is unchanged by it. The reveal has its own nodes.
         boot: crate::boot::Boot::default(),
@@ -765,6 +774,65 @@ fn tool_progress() -> Model {
     }
 }
 
+/// Waiting on a background task, with its bar on the page. This is the state a
+/// spinner cannot express: the agent is blocked on work that *does* know how
+/// far along it is, and a window that only says "still working" throws that
+/// away.
+fn background_progress() -> Model {
+    use crate::transcript::{Message, Transcript};
+    let mut transcript = Transcript::default();
+    transcript.push(Message::user("run the whole workspace test suite"));
+    transcript.set_live_tool("call_1", "wait for the test sweep");
+    transcript.set_progress(
+        "224715dw29",
+        "bash",
+        "62% · Running jcode-desktop2 tests",
+        Some(62.0),
+    );
+    Model {
+        transcript,
+        busy: true,
+        activity: crate::activity::Activity::pinned(
+            2,
+            std::time::Duration::from_secs(94),
+            Some("wait for the test sweep"),
+        ),
+        // Pinned to the render clock's own instant, so the indeterminate bar in
+        // `background_progress_many` draws at phase zero rather than wherever
+        // the wall clock happens to be.
+        progress_clock: None,
+        ..attached_empty()
+    }
+}
+
+/// Several tasks at once, one of them unable to report a percentage. Bars do
+/// not collapse into one line: a turn waiting on three things has to show which
+/// of them is the one that is stuck.
+fn background_progress_many() -> Model {
+    use crate::transcript::{Message, Transcript};
+    let mut transcript = Transcript::default();
+    transcript.push(Message::user("build, test, and deploy the preview"));
+    transcript.set_progress(
+        "build-1",
+        "bash",
+        "88% · Compiling jcode-app-core",
+        Some(88.0),
+    );
+    transcript.set_progress("test-1", "bash", "12/96 crates", Some(12.5));
+    transcript.set_progress("swarm-1", "swarm", "working · waiting on 3 workers", None);
+    transcript.set_live_tool("call_4", "wait for the plan to resolve");
+    Model {
+        transcript,
+        busy: true,
+        activity: crate::activity::Activity::pinned(
+            6,
+            std::time::Duration::from_secs(212),
+            Some("wait for the plan to resolve"),
+        ),
+        ..attached_empty()
+    }
+}
+
 /// A finished edit, kept in the transcript. This is the state the live tool
 /// card cannot express: the call is over, but what it *did* to the user's files
 /// has to stay readable, so the intent, the file, and the changed lines stand as
@@ -983,6 +1051,43 @@ fn markdown_typography() -> Model {
                 "tail, so the total is\n\n",
                 "$$\\sum_{i=1}^{n} c_i \\leq n \\cdot \\max_i c_i$$\n\n",
                 "which is why streaming stays flat. Use `--stream-bench` to check it.\n",
+            )
+            .into(),
+        )]),
+        ..attached_empty()
+    }
+}
+
+/// The structural end of markdown: a wide aligned table, a task list, and a
+/// list with a fenced block and a quote written *inside* its items.
+///
+/// These are the cases that read as broken rather than merely plain when the
+/// front-end ignores them: a table that runs off the measure loses its right
+/// columns, `[x]` renders as source next to a rendered bullet, and a fenced
+/// block indented back to the margin breaks its list open.
+fn markdown_structure() -> Model {
+    Model {
+        transcript: conversation(vec![(
+            "what changed in the wire format".into(),
+            concat!(
+                "| field | meaning | bytes |\n",
+                "|:--|:-:|--:|\n",
+                "| `kind` | which frame this is, and how to read the rest of it | 1 |\n",
+                "| `session` | the session the frame belongs to | 16 |\n",
+                "| `payload` | length-prefixed body, encoded as line-delimited JSON | 4096 |\n\n",
+                "Migration:\n\n",
+                "- [x] carry the alignments through the model\n",
+                "- [x] budget the columns against the measure\n",
+                "- [ ] version the header\n\n",
+                "1. read the header\n\n",
+                "   ```rust\n",
+                "   let kind = Kind::from_u8(bytes[0])?;\n",
+                "   ```\n\n",
+                "   then dispatch on it.\n\n",
+                "2. read the payload\n\n",
+                "   > A short frame is a protocol error, never a partial read.\n",
+                "   >\n",
+                "   > > and a long one is a bug in the sender.\n",
             )
             .into(),
         )]),
